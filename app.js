@@ -1,25 +1,24 @@
 // =====================================================
-// CONFIG
+// CONFIG — UUIDs de tu ESP32-C3 Super Mini
 // =====================================================
-const CHAR_RX_UUID = "87654321-4321-4321-4321-CBA987654321";
-const CHAR_TX_UUID = "11111111-2222-3333-4444-555555555555";
-const SERVICE_UUID = null; // null = descubrir automáticamente
+const DEVICE_NAME_PREFIX = "ESP32";  // Cambia si tu ESP32 se llama distinto
+const SERVICE_UUID  = "12345678-1234-1234-1234-123456789abc";
+const CHAR_RX_UUID  = "87654321-4321-4321-4321-cba987654321";
+const CHAR_TX_UUID  = "11111111-2222-3333-4444-555555555555";
 
 const INTERVALO_ENVIO_MS = 50;
 
 // =====================================================
-// ESTADO GLOBAL
+// ESTADO
 // =====================================================
 let device = null;
 let server = null;
-let charRX = null;   // característica de escritura (recibe comandos)
-let charTX = null;   // característica de notificación (envía datos)
+let charRX = null;
+let charTX = null;
 let conectado = false;
-
 let motorIzq = 0;
 let motorDer = 0;
 const teclas = new Set();
-let joystickVec = { x: 0, y: 0 };
 
 // =====================================================
 // DOM
@@ -54,67 +53,62 @@ function log(msg) {
 // =====================================================
 if (!navigator.bluetooth) {
   $("avisoBLE").classList.remove("hidden");
-  log("Web Bluetooth NO disponible en este navegador.");
+  log("Web Bluetooth NO disponible. Usa Chrome Android o Chrome/Edge en PC.");
 }
 
 // =====================================================
-// ESCANEO
+// ESCANEAR + AUTO-CONECTAR
 // =====================================================
 btnEscanear.addEventListener("click", async () => {
-  if (!navigator.bluetooth) {
-    log("Web Bluetooth no soportado.");
-    return;
-  }
+  if (!navigator.bluetooth) { log("Web Bluetooth no soportado."); return; }
   if (conectado) { log("Ya conectado."); return; }
 
   listaDevs.innerHTML = "";
-  log("Abriendo selector BLE...");
+  log("🔍 Buscando ESP32-C3...");
 
   try {
-    // Web Bluetooth muestra un selector nativo con los dispositivos
-    // No hay API pública para "discover()" y listar; el usuario elige.
-    // Filtramos por servicios comunes o aceptamos todos.
+    // Filtramos por SERVICE_UUID (lo más confiable) + nombre
     device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: collectPossibleServices()
+      filters: [
+        { services: [SERVICE_UUID] },
+        { namePrefix: DEVICE_NAME_PREFIX }
+      ],
+      optionalServices: [
+        SERVICE_UUID,
+        CHAR_RX_UUID,
+        CHAR_TX_UUID,
+        "00001800-0000-1000-8000-00805f9b34fb",
+        "00001801-0000-1000-8000-00805f9b34fb",
+        "0000180a-0000-1000-8000-00805f9b34fb",
+      ]
     });
 
-    log(`Dispositivo seleccionado: ${device.name || "(sin nombre)"} [${device.id}]`);
+    log(`✅ Encontrado: ${device.name || "(sin nombre)"} [${device.id}]`);
     addDeviceToList(device);
+
+    log("🔗 Conectando automáticamente...");
+    await conectar();
+
   } catch (e) {
     if (e.name === "NotFoundError") {
-      log("Selección cancelada.");
+      log("❌ No se encontró. ¿Está encendido el ESP32 y anunciando BLE?");
+    } else if (e.name === "SecurityError") {
+      log("⚠️ Necesitas HTTPS. Abre la app desde GitHub Pages.");
     } else {
       log(`Error: ${e.message}`);
     }
   }
 });
 
-function collectPossibleServices() {
-  // Lista de servicios UUID comunes (custom + estándar) que podamos necesitar
-  return [
-    CHAR_RX_UUID,
-    CHAR_TX_UUID,
-    "0000ffe0-0000-1000-8000-00805f9b34fb",
-    "6e400001-b5a3-f393-e0a9-e50e24dcca9e", // Nordic UART
-    "0000180a-0000-1000-8000-00805f9b34fb", // Device Info
-  ];
-}
-
-let selectedDevice = null;
-
+// =====================================================
+// LISTA VISUAL
+// =====================================================
 function addDeviceToList(dev) {
   listaDevs.innerHTML = "";
   const li = document.createElement("li");
   li.textContent = `${dev.name || "(sin nombre)"}  —  ${dev.id}`;
-  li.dataset.id = dev.id;
-  li.addEventListener("click", () => {
-    document.querySelectorAll("#listaDevices li").forEach(x => x.classList.remove("selected"));
-    li.classList.add("selected");
-    selectedDevice = dev;
-  });
+  li.classList.add("selected");
   listaDevs.appendChild(li);
-  li.click(); // auto-seleccionar
 }
 
 // =====================================================
@@ -123,49 +117,73 @@ function addDeviceToList(dev) {
 btnConectar.addEventListener("click", conectar);
 
 async function conectar() {
-  if (!device) { log("Primero escanea y selecciona un dispositivo."); return; }
+  if (!device) { log("Primero escanea."); return; }
   if (conectado) { log("Ya conectado."); return; }
 
   try {
-    log("Conectando...");
+    log("🔗 Conectando a GATT...");
     server = await device.gatt.connect();
 
-    // Descubrir servicio que contenga nuestras características
-    const services = await server.getPrimaryServices();
+    // Pedimos el servicio específico
+    let service;
+    try {
+      service = await server.getPrimaryService(SERVICE_UUID);
+      log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
+    } catch (e) {
+      log("⚠️ Service UUID no encontrado, escaneando todos...");
+      const services = await server.getPrimaryServices();
+      log(`Servicios: ${services.length}`);
+    }
 
+    // Obtener características
     charRX = null;
     charTX = null;
 
-    for (const svc of services) {
-      const chars = await svc.getCharacteristics();
+    if (service) {
+      const chars = await service.getCharacteristics();
+      log(`Características: ${chars.length}`);
       for (const ch of chars) {
         const u = ch.uuid.toLowerCase();
+        log(`  → ${u}`);
         if (u === CHAR_RX_UUID.toLowerCase()) charRX = ch;
         if (u === CHAR_TX_UUID.toLowerCase()) charTX = ch;
+      }
+      // Fallback dentro del servicio
+      if (!charRX) {
+        for (const ch of chars) {
+          if (ch.properties.write || ch.properties.writeWithoutResponse) {
+            charRX = ch;
+            log(`⚠️ Usando writable alterna: ${ch.uuid}`);
+            break;
+          }
+        }
+      }
+    } else {
+      // Escanear todos los servicios
+      const services = await server.getPrimaryServices();
+      for (const svc of services) {
+        const chars = await svc.getCharacteristics();
+        for (const ch of chars) {
+          const u = ch.uuid.toLowerCase();
+          if (u === CHAR_RX_UUID.toLowerCase()) charRX = ch;
+          if (u === CHAR_TX_UUID.toLowerCase()) charTX = ch;
+        }
       }
     }
 
     if (!charRX) {
-      log("⚠️ No se encontró CHAR_RX_UUID. Revisa el UUID del firmware.");
-      // fallback: usar la primera característica escribible
-      for (const svc of services) {
-        const chars = await svc.getCharacteristics();
-        for (const ch of chars) {
-          if (ch.properties.write || ch.properties.writeWithoutResponse) {
-            charRX = ch;
-            log(`Usando característica alternativa: ${ch.uuid}`);
-            break;
-          }
-        }
-        if (charRX) break;
-      }
+      log("❌ No hay característica escribible. Revisa UUIDs del firmware.");
+      return;
     }
 
-    if (charRX && charTX) {
+    log(`✅ RX listo: ${charRX.uuid}`);
+
+    // Notificaciones
+    if (charTX) {
       try {
         await charTX.startNotifications();
         charTX.addEventListener("characteristicvaluechanged", onNotify);
-        log("Notificaciones activadas.");
+        log("🔔 Notificaciones activadas.");
       } catch (e) {
         log("No se pudieron activar notificaciones: " + e.message);
       }
@@ -176,10 +194,10 @@ async function conectar() {
     conectado = true;
     lblEstado.textContent = "● ONLINE";
     lblEstado.className = "online";
-    log("Conectado correctamente.");
+    log("✅ CONECTADO. ¡Listo para controlar!");
 
   } catch (e) {
-    log(`ERROR al conectar: ${e.message}`);
+    log(`❌ ERROR al conectar: ${e.message}`);
     conectado = false;
   }
 }
@@ -189,40 +207,25 @@ function onDisconnect() {
   lblEstado.textContent = "● OFFLINE";
   lblEstado.className = "offline";
   stop();
-  log("Desconectado.");
+  log("🔌 Desconectado.");
 }
 
 btnDescon.addEventListener("click", () => {
-  if (device && device.gatt.connected) {
-    device.gatt.disconnect();
-  }
+  if (device && device.gatt.connected) device.gatt.disconnect();
 });
 
 // =====================================================
 // NOTIFY
 // =====================================================
 function onNotify(event) {
-  const value = event.target.value;
-  const decoder = new TextDecoder();
-  const text = decoder.decode(value);
-  console.log("RX:", text);
-  // Aquí puedes procesar datos del ESP32
+  const text = new TextDecoder().decode(event.target.value);
+  console.log("RX desde ESP32:", text);
 }
 
 // =====================================================
 // JOYSTICK
 // =====================================================
 let dragging = false;
-let rect = null;
-
-function updateRect() {
-  rect = joystickEl.getBoundingClientRect();
-}
-
-function getKnobCenter() {
-  const r = joystickEl.getBoundingClientRect();
-  return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
-}
 
 function moveKnob(clientX, clientY) {
   const r = joystickEl.getBoundingClientRect();
@@ -233,22 +236,14 @@ function moveKnob(clientX, clientY) {
   let dx = clientX - cx;
   let dy = clientY - cy;
   const dist = Math.hypot(dx, dy);
-  if (dist > maxR) {
-    dx = dx / dist * maxR;
-    dy = dy / dist * maxR;
-  }
+  if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
 
-  // Mover knob
-  const kx = r.width / 2 + dx;
-  const ky = r.height / 2 + dy;
-  knobEl.style.left = kx + "px";
-  knobEl.style.top  = ky + "px";
+  knobEl.style.left = (r.width / 2 + dx) + "px";
+  knobEl.style.top  = (r.height / 2 + dy) + "px";
   knobEl.style.transform = "translate(-50%, -50%)";
 
-  // Normalizar -1..1 (Y invertida: arriba positivo)
   const nx = dx / maxR;
   const ny = -dy / maxR;
-  joystickVec = { x: nx, y: ny };
   onJoystick(nx, ny);
 }
 
@@ -257,7 +252,6 @@ function resetKnob() {
   knobEl.style.top  = "50%";
   knobEl.style.transform = "translate(-50%, -50%)";
   knobEl.classList.remove("active");
-  joystickVec = { x: 0, y: 0 };
   onJoystick(0, 0);
 }
 
@@ -266,7 +260,6 @@ joystickEl.addEventListener("pointerdown", (e) => {
   dragging = true;
   knobEl.classList.add("active");
   joystickEl.setPointerCapture(e.pointerId);
-  updateRect();
   moveKnob(e.clientX, e.clientY);
 });
 joystickEl.addEventListener("pointermove", (e) => {
@@ -274,7 +267,7 @@ joystickEl.addEventListener("pointermove", (e) => {
   e.preventDefault();
   moveKnob(e.clientX, e.clientY);
 });
-joystickEl.addEventListener("pointerup", (e) => {
+joystickEl.addEventListener("pointerup", () => {
   if (!dragging) return;
   dragging = false;
   resetKnob();
@@ -291,13 +284,11 @@ function onJoystick(nx, ny) {
   const v = parseInt(sliderVel.value, 10);
   const adelante = ny * v;
   const giro = nx * v;
-  const izq = Math.round(adelante + giro);
-  const der = Math.round(adelante - giro);
-  setMotores(izq, der);
+  setMotores(Math.round(adelante + giro), Math.round(adelante - giro));
 }
 
 // =====================================================
-// TECLADO (para PC)
+// TECLADO
 // =====================================================
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
@@ -308,8 +299,7 @@ window.addEventListener("keydown", (e) => {
   }
 });
 window.addEventListener("keyup", (e) => {
-  const k = e.key.toLowerCase();
-  teclas.delete(k);
+  teclas.delete(e.key.toLowerCase());
   actualizarDesdeTeclas();
 });
 
@@ -341,37 +331,31 @@ function stop() {
 btnStop.addEventListener("click", stop);
 
 // =====================================================
-// SLIDER VELOCIDAD
+// SLIDER
 // =====================================================
-sliderVel.addEventListener("input", () => {
-  lblVel.textContent = sliderVel.value;
-});
+sliderVel.addEventListener("input", () => { lblVel.textContent = sliderVel.value; });
 lblVel.textContent = sliderVel.value;
 
 // =====================================================
-// LOOP DE ENVÍO BLE
+// ENVÍO BLE
 // =====================================================
 setInterval(async () => {
   if (!conectado || !charRX) return;
   try {
-    const cmd = `M:${motorIzq},${motorDer}`;
-    const data = new TextEncoder().encode(cmd);
-    // Intentar writeWithoutResponse si está disponible (más rápido)
+    const data = new TextEncoder().encode(`M:${motorIzq},${motorDer}`);
     if (charRX.properties.writeWithoutResponse) {
       await charRX.writeValueWithoutResponse(data);
     } else {
       await charRX.writeValue(data);
     }
-  } catch (e) {
-    // Silencioso para no saturar el log
-  }
+  } catch (e) { /* silencioso */ }
 }, INTERVALO_ENVIO_MS);
 
 // =====================================================
-// SERVICE WORKER (para PWA offline)
+// PWA
 // =====================================================
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
-log("Sistema listo. Pulsa ESCANEAR para buscar dispositivos BLE.");
+log("Sistema listo. Pulsa ESCANEAR → se conectará solo al ESP32-C3.");
