@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#05070d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ESP32-C3 // HUD</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>◤ ESP32-C3 // MX1508 ◢</h1>
+  <div id="estado" class="offline">● OFFLINE</div>
+</header>
+
+<!-- CONEXIÓN BLE -->
+<section class="panel">
+  <div class="panel-header">
+    <span>◈ DISPOSITIVOS BLE</span>
+    <div class="btns">
+      <button id="btnEscanear" class="btn cyan">ESCANEAR</button>
+      <button id="btnConectar" class="btn green">CONECTAR</button>
+      <button id="btnDesconectar" class="btn pink">DESCONECTAR</button>
+    </div>
+  </div>
+  <ul id="listaDevices" class="lista"></ul>
+</section>
+
+<!-- CONTROL -->
+<section class="control-grid">
+
+  <div class="joystick-wrap">
+    <div class="label">◈ DIRECCION</div>
+    <div id="joystick" class="joystick">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="cross-h"></div>
+      <div class="cross-v"></div>
+      <div class="mark up">W</div>
+      <div class="mark down">S</div>
+      <div class="mark left">A</div>
+      <div class="mark right">D</div>
+      <div id="knob" class="knob"><div class="dot"></div></div>
+    </div>
+    <button id="btnStop" class="btn red stop">■ STOP</button>
+  </div>
+
+  <div class="panel right-panel">
+    <div class="label">◈ VELOCIDAD MAXIMA</div>
+    <div id="lblVel" class="vel-value">180</div>
+    <input type="range" id="sliderVel" min="0" max="255" value="180" class="slider">
+
+    <div class="label">◈ ESTADO MOTORES</div>
+    <div class="motores">
+      <div class="motor">
+        <div class="motor-lbl">IZQ</div>
+        <div id="lblIzq" class="motor-val">+0000</div>
+      </div>
+      <div class="motor">
+        <div class="motor-lbl">DER</div>
+        <div id="lblDer" class="motor-val">+0000</div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- LOG -->
+<section class="panel log-panel">
+  <div class="label">◈ LOG</div>
+  <div id="log" class="log"></div>
+</section>
+
+<!-- AVISO BLE -->
+<div id="avisoBLE" class="aviso hidden">
+  <div class="aviso-box">
+    <h2>⚠️ Web Bluetooth</h2>
+    <p>Esta aplicación requiere <b>Chrome para Android</b> o <b>Chrome/Edge en PC</b>.</p>
+    <p>En iOS (Safari) Web Bluetooth NO está soportado.</p>
+    <p>Debe ejecutarse desde <b>HTTPS</b> o <b>localhost</b>.</p>
+    <button onclick="document.getElementById('avisoBLE').classList.add('hidden')">OK</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
