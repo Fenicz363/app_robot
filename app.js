@@ -1,7 +1,7 @@
 // =====================================================
 // CONFIG — UUIDs de tu ESP32-C3 Super Mini
 // =====================================================
-const DEVICE_NAME_PREFIX = "ESP32";  // Cambia si tu ESP32 se llama distinto
+const DEVICE_NAME = "ESP32-C3-MOTORES";   // ← nombre EXACTO de tu ESP32
 const SERVICE_UUID  = "12345678-1234-1234-1234-123456789abc";
 const CHAR_RX_UUID  = "87654321-4321-4321-4321-cba987654321";
 const CHAR_TX_UUID  = "11111111-2222-3333-4444-555555555555";
@@ -53,11 +53,11 @@ function log(msg) {
 // =====================================================
 if (!navigator.bluetooth) {
   $("avisoBLE").classList.remove("hidden");
-  log("Web Bluetooth NO disponible. Usa Chrome Android o Chrome/Edge en PC.");
+  log("Web Bluetooth NO disponible.");
 }
 
 // =====================================================
-// ESCANEAR + AUTO-CONECTAR
+// ESCANEAR
 // =====================================================
 btnEscanear.addEventListener("click", async () => {
   if (!navigator.bluetooth) { log("Web Bluetooth no soportado."); return; }
@@ -68,12 +68,10 @@ btnEscanear.addEventListener("click", async () => {
 
   try {
     device = await navigator.bluetooth.requestDevice({
-      // Filtros: por nombre O por servicio (al menos uno debe cumplirse)
       filters: [
-        { namePrefix: DEVICE_NAME_PREFIX },
-        { services: [SERVICE_UUID] }
+        { name: DEVICE_NAME },              // ← nombre exacto
+        { services: [SERVICE_UUID] }        // ← o servicio UUID
       ],
-      // ⚠️ SOLO servicios aquí, NUNCA características
       optionalServices: [
         SERVICE_UUID,
         "battery_service",
@@ -83,25 +81,24 @@ btnEscanear.addEventListener("click", async () => {
       ]
     });
 
-    log(`✅ Encontrado: ${device.name || "(sin nombre)"} [${device.id}]`);
+    log(`✅ Elegido: ${device.name || "(sin nombre)"} [${device.id}]`);
     addDeviceToList(device);
-
     log("🔗 Conectando automáticamente...");
     await conectar();
 
   } catch (e) {
     if (e.name === "NotFoundError") {
-      log("❌ No se encontró. ¿Está encendido el ESP32 y anunciando BLE?");
+      log("❌ No se encontró el ESP32. ¿Está encendido?");
     } else if (e.name === "SecurityError") {
-      log("⚠️ Necesitas HTTPS. Abre la app desde GitHub Pages.");
+      log("⚠️ Necesitas HTTPS.");
     } else {
-      log(`Error: ${e.message}`);
+      log(`❌ ${e.name}: ${e.message}`);
     }
   }
 });
 
 // =====================================================
-// LISTA VISUAL
+// LISTA
 // =====================================================
 function addDeviceToList(dev) {
   listaDevs.innerHTML = "";
@@ -112,8 +109,10 @@ function addDeviceToList(dev) {
 }
 
 // =====================================================
-// CONECTAR
+// CONECTAR — SIN FALLBACKS PELIGROSOS
 // =====================================================
+btnConectar.addEventListener("click", conectar);
+
 async function conectar() {
   if (!device) { log("Primero escanea."); return; }
   if (conectado) { log("Ya conectado."); return; }
@@ -123,65 +122,46 @@ async function conectar() {
     server = await device.gatt.connect();
     log("✅ GATT conectado");
 
-    // Listar TODOS los servicios
-    log("═══ DESCUBRIENDO SERVICIOS ═══");
-    const services = await server.getPrimaryServices();
-    log(`Total servicios: ${services.length}`);
+    // Escuchar desconexión ANTES de cualquier cosa
+    device.addEventListener("gattserverdisconnected", onDisconnect);
 
-    charRX = null;
-    charTX = null;
-
-    for (const svc of services) {
-      log(`📦 SERVICIO: ${svc.uuid}`);
-      const chars = await svc.getCharacteristics();
-      log(`   Características: ${chars.length}`);
-      
-      for (const ch of chars) {
-        const props = ch.properties;
-        const flags = [];
-        if (props.read) flags.push("READ");
-        if (props.write) flags.push("WRITE");
-        if (props.writeWithoutResponse) flags.push("WRITE_NR");
-        if (props.notify) flags.push("NOTIFY");
-        if (props.indicate) flags.push("INDICATE");
-        
-        log(`   └─ ${ch.uuid}  [${flags.join(", ") || "sin props"}]`);
-
-        const u = ch.uuid.toLowerCase();
-        if (u === CHAR_RX_UUID.toLowerCase()) {
-          charRX = ch;
-          log(`      ✅ ¡Esta es CHAR_RX!`);
-        }
-        if (u === CHAR_TX_UUID.toLowerCase()) {
-          charTX = ch;
-          log(`      ✅ ¡Esta es CHAR_TX!`);
-        }
-      }
-    }
-    log("═══ FIN DESCUBRIMIENTO ═══");
-
-    if (!charRX) {
-      log("❌ CHAR_RX no encontrada. Buscando cualquiera escribible...");
-      for (const svc of services) {
-        const chars = await svc.getCharacteristics();
-        for (const ch of chars) {
-          if (ch.properties.write || ch.properties.writeWithoutResponse) {
-            charRX = ch;
-            log(`✅ Usando alternativa: ${ch.uuid}`);
-            break;
-          }
-        }
-        if (charRX) break;
-      }
-    }
-
-    if (!charRX) {
-      log("❌❌ NO HAY NINGUNA CARACTERÍSTICA ESCRIBIBLE EN TODO EL ESP32");
-      log("👉 El firmware no está exponiendo las características correctamente.");
+    // Obtener SOLO el servicio de tu ESP32
+    let service;
+    try {
+      service = await server.getPrimaryService(SERVICE_UUID);
+      log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
+    } catch (e) {
+      log("❌ SERVICIO no encontrado. El firmware no expone el SERVICE_UUID.");
+      log("👉 Verifica que el firmware llame a pService->start() ANTES de adv->start()");
       return;
     }
 
-    log(`✅ RX final: ${charRX.uuid}`);
+    // Obtener SOLO las características de ESE servicio
+    const chars = await service.getCharacteristics();
+    log(`📋 Características en el servicio: ${chars.length}`);
+
+    for (const ch of chars) {
+      const u = ch.uuid.toLowerCase();
+      log(`  → ${u}`);
+      if (u === CHAR_RX_UUID) {
+        charRX = ch;
+        log(`     ✅ CHAR_RX ENCONTRADA`);
+      }
+      if (u === CHAR_TX_UUID) {
+        charTX = ch;
+        log(`     ✅ CHAR_TX ENCONTRADA`);
+      }
+    }
+
+    if (!charRX) {
+      log("❌❌ CHAR_RX_UUID no encontrada en el servicio.");
+      log("   Esperado: " + CHAR_RX_UUID);
+      log("   No se usará ninguna alternativa (evita conectar a dispositivos equivocados).");
+      log("   👉 Revisa los UUIDs de tu firmware.");
+      return;
+    }
+
+    log(`✅ RX lista: ${charRX.uuid}`);
 
     if (charTX) {
       try {
@@ -193,19 +173,38 @@ async function conectar() {
       }
     }
 
-    device.addEventListener("gattserverdisconnected", onDisconnect);
     conectado = true;
     lblEstado.textContent = "● ONLINE";
     lblEstado.className = "online";
-    log("✅ CONECTADO. ¡Listo!");
+    log("✅ CONECTADO. ¡Listo para controlar!");
 
   } catch (e) {
-    log(`❌ ERROR: ${e.message}`);
+    log(`❌ ERROR al conectar: ${e.message}`);
     conectado = false;
   }
 }
+
 // =====================================================
-// NOTIFY (ESP32 → App)
+// DESCONEXIÓN
+// =====================================================
+function onDisconnect() {
+  conectado = false;
+  lblEstado.textContent = "● OFFLINE";
+  lblEstado.className = "offline";
+  charRX = null;
+  charTX = null;
+  stop();
+  log("🔌 Desconectado.");
+}
+
+btnDescon.addEventListener("click", () => {
+  if (device && device.gatt.connected) {
+    device.gatt.disconnect();
+  }
+});
+
+// =====================================================
+// NOTIFY
 // =====================================================
 function onNotify(event) {
   const text = new TextDecoder().decode(event.target.value);
@@ -232,9 +231,7 @@ function moveKnob(clientX, clientY) {
   knobEl.style.top  = (r.height / 2 + dy) + "px";
   knobEl.style.transform = "translate(-50%, -50%)";
 
-  const nx = dx / maxR;
-  const ny = -dy / maxR;
-  onJoystick(nx, ny);
+  onJoystick(dx / maxR, -dy / maxR);
 }
 
 function resetKnob() {
@@ -272,13 +269,11 @@ joystickEl.addEventListener("pointercancel", () => {
 // =====================================================
 function onJoystick(nx, ny) {
   const v = parseInt(sliderVel.value, 10);
-  const adelante = ny * v;
-  const giro = nx * v;
-  setMotores(Math.round(adelante + giro), Math.round(adelante - giro));
+  setMotores(Math.round(ny*v + nx*v), Math.round(ny*v - nx*v));
 }
 
 // =====================================================
-// TECLADO (PC)
+// TECLADO
 // =====================================================
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
@@ -321,13 +316,13 @@ function stop() {
 btnStop.addEventListener("click", stop);
 
 // =====================================================
-// SLIDER VELOCIDAD
+// SLIDER
 // =====================================================
 sliderVel.addEventListener("input", () => { lblVel.textContent = sliderVel.value; });
 lblVel.textContent = sliderVel.value;
 
 // =====================================================
-// LOOP DE ENVÍO BLE
+// ENVÍO BLE
 // =====================================================
 setInterval(async () => {
   if (!conectado || !charRX) return;
@@ -342,10 +337,10 @@ setInterval(async () => {
 }, INTERVALO_ENVIO_MS);
 
 // =====================================================
-// SERVICE WORKER (PWA)
+// PWA
 // =====================================================
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
-log("Sistema listo. Pulsa ESCANEAR → se conectará solo al ESP32-C3.");
+log("Sistema listo. Pulsa ESCANEAR → se conectará solo al ESP32-C3-MOTORES.");
