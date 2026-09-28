@@ -114,8 +114,6 @@ function addDeviceToList(dev) {
 // =====================================================
 // CONECTAR
 // =====================================================
-btnConectar.addEventListener("click", conectar);
-
 async function conectar() {
   if (!device) { log("Primero escanea."); return; }
   if (conectado) { log("Ya conectado."); return; }
@@ -123,93 +121,89 @@ async function conectar() {
   try {
     log("🔗 Conectando a GATT...");
     server = await device.gatt.connect();
+    log("✅ GATT conectado");
 
-    let service = null;
-    try {
-      service = await server.getPrimaryService(SERVICE_UUID);
-      log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
-    } catch (e) {
-      log("⚠️ Service UUID no encontrado, escaneando todos...");
-      const services = await server.getPrimaryServices();
-      log(`Servicios disponibles: ${services.length}`);
-    }
+    // Listar TODOS los servicios
+    log("═══ DESCUBRIENDO SERVICIOS ═══");
+    const services = await server.getPrimaryServices();
+    log(`Total servicios: ${services.length}`);
 
     charRX = null;
     charTX = null;
 
-    if (service) {
-      const chars = await service.getCharacteristics();
-      log(`Características: ${chars.length}`);
+    for (const svc of services) {
+      log(`📦 SERVICIO: ${svc.uuid}`);
+      const chars = await svc.getCharacteristics();
+      log(`   Características: ${chars.length}`);
+      
       for (const ch of chars) {
+        const props = ch.properties;
+        const flags = [];
+        if (props.read) flags.push("READ");
+        if (props.write) flags.push("WRITE");
+        if (props.writeWithoutResponse) flags.push("WRITE_NR");
+        if (props.notify) flags.push("NOTIFY");
+        if (props.indicate) flags.push("INDICATE");
+        
+        log(`   └─ ${ch.uuid}  [${flags.join(", ") || "sin props"}]`);
+
         const u = ch.uuid.toLowerCase();
-        log(`  → ${u}`);
-        if (u === CHAR_RX_UUID.toLowerCase()) charRX = ch;
-        if (u === CHAR_TX_UUID.toLowerCase()) charTX = ch;
-      }
-      // Fallback dentro del servicio
-      if (!charRX) {
-        for (const ch of chars) {
-          if (ch.properties.write || ch.properties.writeWithoutResponse) {
-            charRX = ch;
-            log(`⚠️ Usando writable alterna: ${ch.uuid}`);
-            break;
-          }
+        if (u === CHAR_RX_UUID.toLowerCase()) {
+          charRX = ch;
+          log(`      ✅ ¡Esta es CHAR_RX!`);
+        }
+        if (u === CHAR_TX_UUID.toLowerCase()) {
+          charTX = ch;
+          log(`      ✅ ¡Esta es CHAR_TX!`);
         }
       }
-    } else {
-      const services = await server.getPrimaryServices();
+    }
+    log("═══ FIN DESCUBRIMIENTO ═══");
+
+    if (!charRX) {
+      log("❌ CHAR_RX no encontrada. Buscando cualquiera escribible...");
       for (const svc of services) {
         const chars = await svc.getCharacteristics();
         for (const ch of chars) {
-          const u = ch.uuid.toLowerCase();
-          if (u === CHAR_RX_UUID.toLowerCase()) charRX = ch;
-          if (u === CHAR_TX_UUID.toLowerCase()) charTX = ch;
+          if (ch.properties.write || ch.properties.writeWithoutResponse) {
+            charRX = ch;
+            log(`✅ Usando alternativa: ${ch.uuid}`);
+            break;
+          }
         }
+        if (charRX) break;
       }
     }
 
     if (!charRX) {
-      log("❌ No hay característica escribible. Revisa UUIDs del firmware.");
+      log("❌❌ NO HAY NINGUNA CARACTERÍSTICA ESCRIBIBLE EN TODO EL ESP32");
+      log("👉 El firmware no está exponiendo las características correctamente.");
       return;
     }
 
-    log(`✅ RX listo: ${charRX.uuid}`);
+    log(`✅ RX final: ${charRX.uuid}`);
 
     if (charTX) {
       try {
         await charTX.startNotifications();
         charTX.addEventListener("characteristicvaluechanged", onNotify);
-        log("🔔 Notificaciones activadas.");
+        log("🔔 Notificaciones activadas");
       } catch (e) {
-        log("No se pudieron activar notificaciones: " + e.message);
+        log("⚠️ Notif: " + e.message);
       }
     }
 
     device.addEventListener("gattserverdisconnected", onDisconnect);
-
     conectado = true;
     lblEstado.textContent = "● ONLINE";
     lblEstado.className = "online";
-    log("✅ CONECTADO. ¡Listo para controlar!");
+    log("✅ CONECTADO. ¡Listo!");
 
   } catch (e) {
-    log(`❌ ERROR al conectar: ${e.message}`);
+    log(`❌ ERROR: ${e.message}`);
     conectado = false;
   }
 }
-
-function onDisconnect() {
-  conectado = false;
-  lblEstado.textContent = "● OFFLINE";
-  lblEstado.className = "offline";
-  stop();
-  log("🔌 Desconectado.");
-}
-
-btnDescon.addEventListener("click", () => {
-  if (device && device.gatt.connected) device.gatt.disconnect();
-});
-
 // =====================================================
 // NOTIFY (ESP32 → App)
 // =====================================================
