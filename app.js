@@ -67,19 +67,19 @@ btnEscanear.addEventListener("click", async () => {
   log("🔍 Buscando ESP32-C3...");
 
   try {
-    // Filtramos por SERVICE_UUID (lo más confiable) + nombre
     device = await navigator.bluetooth.requestDevice({
+      // Filtros: por nombre O por servicio (al menos uno debe cumplirse)
       filters: [
-        { services: [SERVICE_UUID] },
-        { namePrefix: DEVICE_NAME_PREFIX }
+        { namePrefix: DEVICE_NAME_PREFIX },
+        { services: [SERVICE_UUID] }
       ],
+      // ⚠️ SOLO servicios aquí, NUNCA características
       optionalServices: [
         SERVICE_UUID,
-        CHAR_RX_UUID,
-        CHAR_TX_UUID,
-        "00001800-0000-1000-8000-00805f9b34fb",
-        "00001801-0000-1000-8000-00805f9b34fb",
-        "0000180a-0000-1000-8000-00805f9b34fb",
+        "battery_service",
+        "device_information",
+        "generic_access",
+        "generic_attribute"
       ]
     });
 
@@ -124,18 +124,16 @@ async function conectar() {
     log("🔗 Conectando a GATT...");
     server = await device.gatt.connect();
 
-    // Pedimos el servicio específico
-    let service;
+    let service = null;
     try {
       service = await server.getPrimaryService(SERVICE_UUID);
       log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
     } catch (e) {
       log("⚠️ Service UUID no encontrado, escaneando todos...");
       const services = await server.getPrimaryServices();
-      log(`Servicios: ${services.length}`);
+      log(`Servicios disponibles: ${services.length}`);
     }
 
-    // Obtener características
     charRX = null;
     charTX = null;
 
@@ -159,7 +157,6 @@ async function conectar() {
         }
       }
     } else {
-      // Escanear todos los servicios
       const services = await server.getPrimaryServices();
       for (const svc of services) {
         const chars = await svc.getCharacteristics();
@@ -178,7 +175,6 @@ async function conectar() {
 
     log(`✅ RX listo: ${charRX.uuid}`);
 
-    // Notificaciones
     if (charTX) {
       try {
         await charTX.startNotifications();
@@ -215,7 +211,7 @@ btnDescon.addEventListener("click", () => {
 });
 
 // =====================================================
-// NOTIFY
+// NOTIFY (ESP32 → App)
 // =====================================================
 function onNotify(event) {
   const text = new TextDecoder().decode(event.target.value);
@@ -288,7 +284,7 @@ function onJoystick(nx, ny) {
 }
 
 // =====================================================
-// TECLADO
+// TECLADO (PC)
 // =====================================================
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
@@ -331,13 +327,13 @@ function stop() {
 btnStop.addEventListener("click", stop);
 
 // =====================================================
-// SLIDER
+// SLIDER VELOCIDAD
 // =====================================================
 sliderVel.addEventListener("input", () => { lblVel.textContent = sliderVel.value; });
 lblVel.textContent = sliderVel.value;
 
 // =====================================================
-// ENVÍO BLE
+// LOOP DE ENVÍO BLE
 // =====================================================
 setInterval(async () => {
   if (!conectado || !charRX) return;
@@ -352,7 +348,7 @@ setInterval(async () => {
 }, INTERVALO_ENVIO_MS);
 
 // =====================================================
-// PWA
+// SERVICE WORKER (PWA)
 // =====================================================
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
