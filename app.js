@@ -1,5 +1,5 @@
 // =====================================================
-// CONFIG — UUIDs de tu ESP32-C3 Super Mini
+// CONFIG
 // =====================================================
 const DEVICE_NAME = "ESP32-C3-MOTORES";
 const SERVICE_UUID  = "12345678-1234-1234-1234-123456789abc";
@@ -67,11 +67,9 @@ btnEscanear.addEventListener("click", async () => {
   log("🔍 Buscando ESP32-C3...");
 
   try {
+    // Filtro por nombre exacto — el más confiable
     device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { name: DEVICE_NAME },
-        { services: [SERVICE_UUID] }
-      ],
+      filters: [{ name: DEVICE_NAME }],
       optionalServices: [
         SERVICE_UUID,
         "battery_service",
@@ -98,7 +96,7 @@ btnEscanear.addEventListener("click", async () => {
 });
 
 // =====================================================
-// LISTA
+// LISTA VISUAL
 // =====================================================
 function addDeviceToList(dev) {
   listaDevs.innerHTML = "";
@@ -109,7 +107,7 @@ function addDeviceToList(dev) {
 }
 
 // =====================================================
-// CONECTAR — SIN FALLBACK
+// CONECTAR — LISTA TODOS LOS SERVICIOS Y BUSCA EL NUESTRO
 // =====================================================
 btnConectar.addEventListener("click", conectar);
 
@@ -124,22 +122,43 @@ async function conectar() {
 
     device.addEventListener("gattserverdisconnected", onDisconnect);
 
-    let service;
-    try {
-      service = await server.getPrimaryService(SERVICE_UUID);
-      log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
-    } catch (e) {
-      log("❌ SERVICIO no encontrado. El firmware no expone el SERVICE_UUID.");
-      log("👉 Revisa que el firmware llame a pService->start() antes de adv->start()");
+    // Listar TODOS los servicios
+    log("🔎 Listando TODOS los servicios...");
+    const services = await server.getPrimaryServices();
+    log(`📦 Total servicios: ${services.length}`);
+
+    let service = null;
+    for (const svc of services) {
+      const u = svc.uuid.toLowerCase();
+      log(`  → Servicio: ${u}`);
+      if (u === SERVICE_UUID.toLowerCase()) {
+        service = svc;
+        log(`     ✅ ¡ESTE ES NUESTRO SERVICIO!`);
+        break;
+      }
+    }
+
+    if (!service) {
+      log("❌ SERVICIO no encontrado entre los expuestos.");
+      log(`   Buscando: ${SERVICE_UUID}`);
+      log("   👉 Copia toda la lista de servicios y pégala.");
       return;
     }
 
+    // Obtener características
     const chars = await service.getCharacteristics();
     log(`📋 Características: ${chars.length}`);
 
     for (const ch of chars) {
       const u = ch.uuid.toLowerCase();
-      log(`  → ${u}`);
+      const props = ch.properties;
+      const flags = [];
+      if (props.read) flags.push("READ");
+      if (props.write) flags.push("WRITE");
+      if (props.writeWithoutResponse) flags.push("WRITE_NR");
+      if (props.notify) flags.push("NOTIFY");
+      log(`  → ${u}  [${flags.join(", ")}]`);
+
       if (u === CHAR_RX_UUID) {
         charRX = ch;
         log(`     ✅ CHAR_RX ENCONTRADA`);
@@ -151,8 +170,7 @@ async function conectar() {
     }
 
     if (!charRX) {
-      log("❌ CHAR_RX_UUID no encontrada en el servicio.");
-      log("   Esperado: " + CHAR_RX_UUID);
+      log("❌ CHAR_RX no encontrada dentro del servicio.");
       return;
     }
 
@@ -326,7 +344,7 @@ setInterval(async () => {
     } else {
       await charRX.writeValue(data);
     }
-  } catch (e) {}
+  } catch (e) { /* silencioso */ }
 }, INTERVALO_ENVIO_MS);
 
 // =====================================================
