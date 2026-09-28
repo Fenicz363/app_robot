@@ -1,7 +1,7 @@
 // =====================================================
 // CONFIG — UUIDs de tu ESP32-C3 Super Mini
 // =====================================================
-const DEVICE_NAME = "ESP32-C3-MOTORES";   // ← nombre EXACTO de tu ESP32
+const DEVICE_NAME = "ESP32-C3-MOTORES";
 const SERVICE_UUID  = "12345678-1234-1234-1234-123456789abc";
 const CHAR_RX_UUID  = "87654321-4321-4321-4321-cba987654321";
 const CHAR_TX_UUID  = "11111111-2222-3333-4444-555555555555";
@@ -69,8 +69,8 @@ btnEscanear.addEventListener("click", async () => {
   try {
     device = await navigator.bluetooth.requestDevice({
       filters: [
-        { name: DEVICE_NAME },              // ← nombre exacto
-        { services: [SERVICE_UUID] }        // ← o servicio UUID
+        { name: DEVICE_NAME },
+        { services: [SERVICE_UUID] }
       ],
       optionalServices: [
         SERVICE_UUID,
@@ -109,7 +109,7 @@ function addDeviceToList(dev) {
 }
 
 // =====================================================
-// CONECTAR — SIN FALLBACKS PELIGROSOS
+// CONECTAR — SIN FALLBACK
 // =====================================================
 btnConectar.addEventListener("click", conectar);
 
@@ -122,23 +122,20 @@ async function conectar() {
     server = await device.gatt.connect();
     log("✅ GATT conectado");
 
-    // Escuchar desconexión ANTES de cualquier cosa
     device.addEventListener("gattserverdisconnected", onDisconnect);
 
-    // Obtener SOLO el servicio de tu ESP32
     let service;
     try {
       service = await server.getPrimaryService(SERVICE_UUID);
       log(`✅ Servicio encontrado: ${SERVICE_UUID.slice(0,8)}...`);
     } catch (e) {
       log("❌ SERVICIO no encontrado. El firmware no expone el SERVICE_UUID.");
-      log("👉 Verifica que el firmware llame a pService->start() ANTES de adv->start()");
+      log("👉 Revisa que el firmware llame a pService->start() antes de adv->start()");
       return;
     }
 
-    // Obtener SOLO las características de ESE servicio
     const chars = await service.getCharacteristics();
-    log(`📋 Características en el servicio: ${chars.length}`);
+    log(`📋 Características: ${chars.length}`);
 
     for (const ch of chars) {
       const u = ch.uuid.toLowerCase();
@@ -154,10 +151,8 @@ async function conectar() {
     }
 
     if (!charRX) {
-      log("❌❌ CHAR_RX_UUID no encontrada en el servicio.");
+      log("❌ CHAR_RX_UUID no encontrada en el servicio.");
       log("   Esperado: " + CHAR_RX_UUID);
-      log("   No se usará ninguna alternativa (evita conectar a dispositivos equivocados).");
-      log("   👉 Revisa los UUIDs de tu firmware.");
       return;
     }
 
@@ -176,10 +171,10 @@ async function conectar() {
     conectado = true;
     lblEstado.textContent = "● ONLINE";
     lblEstado.className = "online";
-    log("✅ CONECTADO. ¡Listo para controlar!");
+    log("✅ CONECTADO. ¡Listo!");
 
   } catch (e) {
-    log(`❌ ERROR al conectar: ${e.message}`);
+    log(`❌ ERROR: ${e.message}`);
     conectado = false;
   }
 }
@@ -198,9 +193,7 @@ function onDisconnect() {
 }
 
 btnDescon.addEventListener("click", () => {
-  if (device && device.gatt.connected) {
-    device.gatt.disconnect();
-  }
+  if (device && device.gatt.connected) device.gatt.disconnect();
 });
 
 // =====================================================
@@ -333,7 +326,7 @@ setInterval(async () => {
     } else {
       await charRX.writeValue(data);
     }
-  } catch (e) { /* silencioso */ }
+  } catch (e) {}
 }, INTERVALO_ENVIO_MS);
 
 // =====================================================
