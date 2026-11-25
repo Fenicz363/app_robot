@@ -1,94 +1,393 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#05070d">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>ESP32-C3 // HUD</title>
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
-<link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1b2d">
+<meta name="color-scheme" content="dark">
+<title>Robot Control</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🤖%3C/text%3E%3C/svg%3E">
+<style>
+:root{--ink:#0f1b2d;--panel:#18283f;--panel2:#20344f;--line:#2c4466;--txt:#eef3fa;--mut:#8ea3bf;
+--mint:#34d399;--mint2:#6ee7b7;--coral:#ff6b57;--sun:#fbbf24;--grape:#8b7cf6;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--ink);color:var(--txt);overscroll-behavior:none;
+font-family:ui-rounded,"SF Pro Rounded","Nunito",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100dvh;display:flex;justify-content:center;user-select:none;-webkit-user-select:none}
+main{width:100%;max-width:460px;min-height:100dvh;display:flex;flex-direction:column;gap:12px;
+padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+h1{margin:0;font-size:24px;letter-spacing:-.3px}
+header small{color:var(--mut)}
+button{font:inherit;color:inherit;border:0;cursor:pointer;touch-action:manipulation}
+#clamp,#stop{touch-action:none}
+#conn{background:var(--mint);color:#06281c;font-weight:800;padding:12px 18px;border-radius:999px;font-size:15px}
+#conn.off{background:var(--coral);color:#fff}
+#conn:disabled{background:var(--panel2);color:var(--mut)}
+.pill{display:flex;align-items:center;gap:8px;background:var(--panel);border-radius:999px;padding:10px 14px;font-size:14px}
+.pill i{width:11px;height:11px;border-radius:50%;background:var(--mut);flex:none}
+.pill.ok i{background:var(--mint);box-shadow:0 0 0 4px #34d39933}.pill.wait i{background:var(--sun)}.pill.err i{background:var(--coral)}
+#warn{background:#ff6b5722;border:1px solid var(--coral);border-radius:14px;padding:12px;font-size:14px;line-height:1.4}
+.card{background:var(--panel);border-radius:20px;padding:14px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--ink);border-radius:14px;padding:4px;gap:4px}
+.seg button{background:none;padding:12px;border-radius:11px;font-weight:700;color:var(--mut);font-size:15px}
+.seg button.on{background:var(--panel2);color:var(--txt);box-shadow:inset 0 0 0 2px var(--mint)}
+.card p{margin:10px 2px 0;color:var(--mut);font-size:14px;line-height:1.4}
+#clamp{width:100%;min-height:78px;border-radius:18px;font-size:18px;font-weight:800;line-height:1.25;color:#fff;transition:background .15s}
+#clamp small{display:block;font-size:13px;font-weight:600;opacity:.85}
+#clamp[data-s=idle]{background:var(--grape)}#clamp[data-s=busy]{background:var(--sun);color:#3a2a00}
+#clamp[data-s=held]{background:var(--mint);color:#06281c}#clamp[data-s=opening]{background:var(--panel2)}
+.bar{height:10px;border-radius:9px;background:var(--ink);overflow:hidden;margin:12px 0 6px}
+.bar b{display:block;height:100%;width:0;background:var(--sun)}
+.sub{color:var(--mut);font-size:14px;text-align:center}
+.row{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;color:var(--mut)}
+.row strong{font-size:26px;color:var(--txt)}
+input[type=range]{width:100%;height:34px;accent-color:var(--grape);margin:4px 0}
+.presets{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.presets button{background:var(--panel2);padding:11px 0;border-radius:10px;font-size:14px;font-weight:700}
+.presets button:active{background:var(--grape)}
+.drive{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:12px}
+.state{color:var(--mut);font-size:15px}.state b{color:var(--txt)}.state b.go{color:var(--mint2)}
+#pad{position:relative;width:min(80vw,330px);aspect-ratio:1;border-radius:50%;touch-action:none;
+background:radial-gradient(circle,var(--panel2) 0,var(--panel) 62%);box-shadow:inset 0 0 0 3px var(--line)}
+.arrows{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+place-items:center;font-size:28px;color:var(--line);pointer-events:none;padding:4%}
+.arrows span{transition:transform .08s,color .08s}.arrows span.on{color:var(--mint2);transform:scale(1.5)}
+#knob{position:absolute;left:50%;top:50%;width:32%;aspect-ratio:1;border-radius:50%;pointer-events:none;
+background:radial-gradient(circle at 35% 30%,var(--mint2),var(--mint));box-shadow:0 8px 18px #0008;transform:translate(-50%,-50%)}
+#knob.back{transition:transform .12s}
+#stop{width:100%;padding:18px;border-radius:18px;background:var(--coral);color:#fff;font-size:20px;font-weight:800}
+#stop:active{filter:brightness(1.2)}
+.ctl{transition:opacity .2s}body:not(.on) .ctl{opacity:.4;pointer-events:none}
+details summary{cursor:pointer;color:var(--mut);font-size:15px}
+details label{display:block;margin-top:10px;font-size:13px;color:var(--mut)}
+details input[type=text]{width:100%;margin-top:4px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--ink);color:var(--txt);font:inherit;font-size:14px}
+details .chk{display:flex;gap:8px;align-items:center}
+#save{margin-top:10px;background:var(--panel2);padding:10px 16px;border-radius:10px;font-weight:700}
+#log{margin:12px 0 0;height:110px;overflow:auto;background:var(--ink);border-radius:10px;padding:8px;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--mut);white-space:pre-wrap;user-select:text}
+</style>
 </head>
 <body>
+<main>
+  <header>
+    <div><h1>Robot Control</h1><small>FutCar · Globo Smash</small></div>
+    <button id="conn">Conectar</button>
+  </header>
+  <div class="pill" id="pill"><i></i><span id="status">Desconectado</span></div>
+  <div id="warn" hidden>Este navegador no permite Bluetooth. Abre la página en <b>Chrome para Android</b> (o Chrome/Edge en computador). En iPhone usa el navegador Bluefy.</div>
 
-<header>
-  <h1>◤ ESP32-C3 // MX1508 ◢</h1>
-  <div id="estado" class="offline">● OFFLINE</div>
-</header>
+  <section class="card">
+    <div class="seg"><button data-m="FutCar" class="on">FutCar</button><button data-m="Globo">Globo Smash</button></div>
+    <p id="mdesc"></p>
+  </section>
 
-<!-- CONEXIÓN BLE -->
-<section class="panel">
-  <div class="panel-header">
-    <span>◈ DISPOSITIVOS BLE</span>
-    <div class="btns">
-      <button id="btnEscanear" class="btn cyan">ESCANEAR</button>
-      <button id="btnConectar" class="btn green">CONECTAR</button>
-      <button id="btnDesconectar" class="btn pink">DESCONECTAR</button>
+  <section class="card ctl">
+    <button id="clamp" data-s="idle"></button>
+    <div id="pFut"><div class="bar"><b id="fill"></b></div><div class="sub" id="cst">Lista para cerrar</div></div>
+    <div id="pGlobo" hidden>
+      <div class="row"><span>Ángulo del servo</span><strong id="sv">90°</strong></div>
+      <input type="range" id="slider" min="0" max="180" value="90">
+      <div class="presets" id="presets"></div>
     </div>
-  </div>
-  <ul id="listaDevices" class="lista"></ul>
-</section>
+  </section>
 
-<!-- CONTROL -->
-<section class="control-grid">
-
-  <div class="joystick-wrap">
-    <div class="label">◈ DIRECCION</div>
-    <div id="joystick" class="joystick">
-      <div class="ring r1"></div>
-      <div class="ring r2"></div>
-      <div class="ring r3"></div>
-      <div class="cross-h"></div>
-      <div class="cross-v"></div>
-      <div class="mark up">W</div>
-      <div class="mark down">S</div>
-      <div class="mark left">A</div>
-      <div class="mark right">D</div>
-      <div id="knob" class="knob"><div class="dot"></div></div>
-    </div>
-    <button id="btnStop" class="btn red stop">■ STOP</button>
-  </div>
-
-  <div class="panel right-panel">
-    <div class="label">◈ VELOCIDAD MAXIMA</div>
-    <div id="lblVel" class="vel-value">180</div>
-    <input type="range" id="sliderVel" min="0" max="255" value="180" class="slider">
-
-    <div class="label">◈ ESTADO MOTORES</div>
-    <div class="motores">
-      <div class="motor">
-        <div class="motor-lbl">IZQ</div>
-        <div id="lblIzq" class="motor-val">+0000</div>
+  <section class="drive ctl">
+    <div class="state">Estado: <b id="mstate">Detenido</b></div>
+    <div id="pad">
+      <div class="arrows">
+        <span data-d="q">↖</span><span data-d="w">↑</span><span data-d="e">↗</span>
+        <span data-d="a">←</span><span></span><span data-d="d">→</span>
+        <span data-d="z">↙</span><span data-d="s">↓</span><span data-d="c">↘</span>
       </div>
-      <div class="motor">
-        <div class="motor-lbl">DER</div>
-        <div id="lblDer" class="motor-val">+0000</div>
-      </div>
+      <div id="knob"></div>
     </div>
-  </div>
+    <button id="stop">■ Parar</button>
+  </section>
 
-</section>
+  <details class="card">
+    <summary>Registro y ajustes</summary>
+    <pre id="log"></pre>
+    <label>Nombre del robot<input type="text" id="cName"></label>
+    <label>UUID del servicio (el mismo del Arduino)<input type="text" id="cSvc"></label>
+    <label class="chk"><input type="checkbox" id="cAll"> Mostrar todos los dispositivos Bluetooth</label>
+    <button id="save">Guardar ajustes</button>
+  </details>
+</main>
 
-<!-- LOG -->
-<section class="panel log-panel">
-  <div class="label">◈ LOG</div>
-  <div id="log" class="log"></div>
-</section>
+<script>
+// ───── Configuración ─────
+const DEFAULTS = { name: "Robot_esp32_Peña", service: "4fafc201-1fb5-459e-8fcc-c5c9c331914b", all: false };
+const CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+const FIXED_SPEED = 180, CLAMP_MS = 3000, COOLDOWN_MS = 500, HOME = 90;
 
-<!-- AVISO BLE -->
-<div id="avisoBLE" class="aviso hidden">
-  <div class="aviso-box">
-    <h2>⚠️ Web Bluetooth</h2>
-    <p>Esta aplicación requiere <b>Chrome para Android</b> o <b>Chrome/Edge en PC</b>.</p>
-    <p>En iOS (Safari) Web Bluetooth NO está soportado.</p>
-    <p>Debe ejecutarse desde <b>HTTPS</b> o <b>localhost</b>.</p>
-    <button onclick="document.getElementById('avisoBLE').classList.add('hidden')">OK</button>
-  </div>
-</div>
+const NAMES = { w:"Adelante", s:"Atrás", a:"Izquierda", d:"Derecha", q:"Adelante-Izquierda", e:"Adelante-Derecha",
+                z:"Atrás-Izquierda", c:"Atrás-Derecha", x:"Detener" };
+const MODES = {
+  FutCar: "La pinza se cierra sola durante 3 s, se abre y descansa un momento. Solo toca el botón.",
+  Globo: "Mantén pulsado el botón para cerrar la pinza; al soltar se abre. Ajusta el ángulo del servo abajo."
+};
+const $ = s => document.querySelector(s);
+let cfg = { ...DEFAULTS };
+try { cfg = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("cfg") || "{}") }; } catch (e) {}
 
-<script src="app.js"></script>
+let dev = null, ch = null, writeFn = null, connected = false, mode = "FutCar";
+let lastCmd = null, padDir = null, chain = Promise.resolve(), wake = null;
+const lines = [];
+
+function log(msg) {
+  lines.push(new Date().toLocaleTimeString("es") + "  " + msg);
+  if (lines.length > 60) lines.shift();
+  const el = $("#log"); el.textContent = lines.join("\n"); el.scrollTop = el.scrollHeight;
+}
+
+// ───── Bluetooth ─────
+function send(t) {
+  if (!connected || !ch) return;
+  const data = new TextEncoder().encode(t);
+  chain = chain.then(() => writeFn(data)).catch(e => log("⚠ No se pudo enviar " + t + ": " + e.message));
+}
+function tx(cmd, label) { send(cmd); log("→ " + cmd + "   " + (label || "")); }
+
+function setConn(state, detail) {
+  connected = state === "connected";
+  const text = { disconnected: detail || "Desconectado", connecting: "Buscando robot…",
+                 connected: "Conectado · " + detail, error: detail }[state];
+  $("#pill").className = "pill " + { disconnected: "", connecting: "wait", connected: "ok", error: "err" }[state];
+  $("#status").textContent = text;
+  const b = $("#conn");
+  b.textContent = { disconnected: "Conectar", connecting: "Conectando…", connected: "Desconectar", error: "Reintentar" }[state];
+  b.className = connected ? "off" : ""; b.disabled = state === "connecting";
+  document.body.classList.toggle("on", connected);
+  if (!connected) { padDir = null; lastCmd = null; keys.clear(); show(null); moveKnob(0, 0); resetClamp(); }
+}
+
+// Intenta abrir el servicio/característica probando varias estrategias.
+// Devuelve {srv, ch} o lanza error.
+async function openGatt(device) {
+  const srv = await device.gatt.connect();
+
+  // 1) Servicio configurado
+  try {
+    const svc = await srv.getPrimaryService(cfg.service);
+    const chx = await svc.getCharacteristic(CHAR_UUID);
+    return { srv, chx };
+  } catch (e) { log("⚠ Servicio " + cfg.service + " no encontrado, probando alternativas…"); }
+
+  // 2) Cualquier servicio que exponga la característica conocida
+  const services = await srv.getPrimaryServices();
+  for (const svc of services) {
+    try {
+      const chx = await svc.getCharacteristic(CHAR_UUID);
+      log("✓ Característica encontrada en servicio " + svc.uuid);
+      return { srv, chx };
+    } catch (e) {}
+  }
+  // 3) Última oportunidad: usar el primer servicio que tenga alguna característica escribible
+  for (const svc of services) {
+    try {
+      const chs = await svc.getCharacteristics();
+      const chx = chs.find(c => c.properties.write || c.properties.writeWithoutResponse);
+      if (chx) { log("✓ Usando característica escribible " + chx.uuid); return { srv, chx }; }
+    } catch (e) {}
+  }
+  throw new Error("No encontré ninguna característica compatible en el dispositivo.");
+}
+
+async function connect() {
+  if (connected) { send("x"); await chain; dev.gatt.disconnect(); return; }
+  setConn("connecting");
+
+  // Estrategia 1: buscar por nombre configurado.
+  // Estrategia 2: si el usuario pide "todos" o no aparece, abrir selector completo.
+  const tryRequest = async (opts) => {
+    try { return await navigator.bluetooth.requestDevice(opts); }
+    catch (e) { if (/cancel/i.test(e.message || e.name)) throw e; log("⚠ " + (e.message || e.name)); return null; }
+  };
+
+  try {
+    let device = null;
+
+    if (!cfg.all) {
+      log("Buscando por nombre: " + cfg.name);
+      device = await tryRequest({
+        filters: [{ name: cfg.name }],
+        optionalServices: [cfg.service]
+      });
+    }
+
+    // Fallback: si no se obtuvo (o el usuario marcó "mostrar todos")
+    if (!device) {
+      log("Abriendo selector de dispositivos (cualquiera)…");
+      device = await tryRequest({
+        acceptAllDevices: true,
+        optionalServices: [cfg.service]
+      });
+    }
+    if (!device) { setConn("disconnected", "Sin dispositivo"); return; }
+
+    dev = device;
+    dev.addEventListener("gattserverdisconnected", () => {
+      ch = null; writeFn = null;
+      setConn("disconnected", "Conexión cerrada");
+      log("Conexión cerrada");
+    });
+
+    const { srv, chx } = await openGatt(dev);
+    ch = chx;
+    const canWrite = ch.properties.write;
+    const fn = canWrite ? (ch.writeValueWithResponse || ch.writeValue)
+                        : (ch.writeValueWithoutResponse || ch.writeValue);
+    writeFn = fn.bind(ch);
+
+    setConn("connected", dev.name || cfg.name);
+    send("v" + String(FIXED_SPEED).padStart(3, "0"));
+    send("g" + String(HOME).padStart(3, "0"));
+    servoSent = HOME; setServo(HOME);
+    log("Conectado a " + (dev.name || "dispositivo") + ". Velocidad " + FIXED_SPEED + ", servo " + HOME + "°.");
+    try { wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+  } catch (e) {
+    let m = e.message || e.name;
+    if (/cancel/i.test(m)) m = "No elegiste ningún dispositivo.";
+    else if (/service/i.test(m)) m = "No encontré el servicio. Revisa el UUID en Ajustes.";
+    log("⚠ " + (e.message || e.name)); setConn("error", m.slice(0, 70));
+  }
+}
+
+// ───── Movimiento: joystick + teclado ─────
+const pad = $("#pad"), knob = $("#knob");
+const DIRS = ["d", "e", "w", "q", "a", "z", "s", "c"];
+function moveKnob(x, y) { knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`; }
+function show(cmd) {
+  document.querySelectorAll(".arrows span[data-d]").forEach(s => s.classList.toggle("on", s.dataset.d === cmd));
+  const m = $("#mstate"); m.textContent = cmd ? NAMES[cmd] : "Detenido"; m.classList.toggle("go", !!cmd);
+}
+function setDir(cmd) {
+  if (cmd === lastCmd) return;
+  lastCmd = cmd; tx(cmd || "x", NAMES[cmd || "x"]); show(cmd);
+  if (cmd && navigator.vibrate) navigator.vibrate(10);
+}
+function stopAll(why) {
+  keys.clear(); padDir = null; lastCmd = null; moveKnob(0, 0); knob.classList.add("back");
+  tx("x", why || "Detener"); show(null);
+}
+let padActive = false;
+function padUpdate(e) {
+  const r = pad.getBoundingClientRect(), half = r.width / 2;
+  const dx = e.clientX - (r.left + half), dy = e.clientY - (r.top + half), dist = Math.hypot(dx, dy);
+  const k = dist > half * 0.55 ? half * 0.55 / dist : 1;
+  knob.classList.remove("back"); moveKnob(dx * k, dy * k);
+  padDir = dist < half * 0.2 ? null : DIRS[Math.round(((Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360) / 45) % 8];
+  setDir(padDir || kdir());
+}
+pad.addEventListener("pointerdown", e => { if (!connected) return; pad.setPointerCapture(e.pointerId); padActive = true; padUpdate(e); });
+pad.addEventListener("pointermove", e => { if (padActive) padUpdate(e); });
+const padEnd = () => { if (!padActive) return; padActive = false; padDir = null; knob.classList.add("back"); moveKnob(0, 0); setDir(kdir()); };
+pad.addEventListener("pointerup", padEnd); pad.addEventListener("pointercancel", padEnd);
+$("#stop").addEventListener("pointerdown", () => connected && stopAll("Botón parar"));
+
+const KM = { w:"w", arrowup:"w", s:"s", arrowdown:"s", a:"a", arrowleft:"a", d:"d", arrowright:"d" };
+const DIAG = { wa:"q", wd:"e", sa:"z", sd:"c" }, keys = new Set();
+function kdir() {
+  const v = keys.has("w") ? "w" : keys.has("s") ? "s" : "", h = keys.has("a") ? "a" : keys.has("d") ? "d" : "";
+  return (v && h) ? DIAG[v + h] : (v || h || null);
+}
+addEventListener("keydown", e => {
+  if (!connected || e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (KM[k]) { keys.add(KM[k]); setDir(padDir || kdir()); }
+  else if (k === " ") { e.preventDefault(); clampDown(); }
+  else if (k === "escape" || k === "x") stopAll("Parada de emergencia");
+});
+addEventListener("keyup", e => {
+  if (!connected) return;
+  const k = e.key.toLowerCase();
+  if (KM[k]) { keys.delete(KM[k]); setDir(padDir || kdir()); } else if (k === " ") clampUp();
+});
+
+// ───── Pinza ─────
+const clampBtn = $("#clamp");
+let busy = false, held = false, endAt = 0, timer = null;
+function look(s, left) {
+  const fut = mode === "FutCar";
+  clampBtn.dataset.s = s;
+  clampBtn.innerHTML = {
+    idle: fut ? "Cerrar pinza<small>Se abre sola en " + CLAMP_MS / 1000 + " s</small>" : "Mantén para cerrar<small>Suelta para abrir</small>",
+    busy: "Pinza cerrada<small>Se abre en " + (left / 1000).toFixed(1) + " s</small>",
+    held: "Pinza cerrada<small>Suelta para abrir</small>",
+    opening: "Abriendo…"
+  }[s];
+}
+function closeCmd() { tx("p", "Cerrar pinza"); tx("x", "Parar motores (seguridad)"); lastCmd = null; show(null); }
+function clampDown() {
+  if (!connected) return;
+  if (mode === "FutCar") { if (busy) return; busy = true; endAt = performance.now() + CLAMP_MS; closeCmd(); tick(); }
+  else if (!held) { held = true; closeCmd(); look("held"); }
+}
+function clampUp() { if (mode === "Globo" && held) { held = false; tx("o", "Abrir pinza"); look("idle"); } }
+function tick() {
+  const left = endAt - performance.now();
+  if (left <= 0) {
+    tx("o", "Abrir pinza"); $("#fill").style.width = "0"; $("#cst").textContent = "Abriendo…";
+    look("opening"); timer = setTimeout(resetClamp, COOLDOWN_MS); return;
+  }
+  $("#fill").style.width = (left / CLAMP_MS * 100) + "%";
+  $("#cst").textContent = "Cerrada, se abre en " + (left / 1000).toFixed(1) + " s";
+  look("busy", left); timer = setTimeout(tick, 50);
+}
+function resetClamp() {
+  clearTimeout(timer); busy = held = false; $("#fill").style.width = "0"; $("#cst").textContent = "Lista para cerrar"; look("idle");
+}
+clampBtn.addEventListener("pointerdown", e => { clampBtn.setPointerCapture(e.pointerId); clampDown(); });
+clampBtn.addEventListener("pointerup", clampUp); clampBtn.addEventListener("pointercancel", clampUp);
+
+// ───── Versión y servo ─────
+function applyMode() {
+  $("#mdesc").textContent = MODES[mode];
+  $("#pFut").hidden = mode !== "FutCar"; $("#pGlobo").hidden = mode !== "Globo";
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+  resetClamp();
+}
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+  mode = b.dataset.m; if (connected) tx("o", "Abrir pinza (cambio de versión)"); applyMode();
+});
+
+let servoTarget = HOME, servoSent = null, servoJob = null;
+function setServo(a) {
+  a = Math.max(0, Math.min(180, Math.round(a))); servoTarget = a;
+  $("#sv").textContent = a + "°"; $("#slider").value = a;
+  if (connected && mode === "Globo" && !servoJob) servoJob = setTimeout(() => {
+    servoJob = null;
+    if (connected && servoTarget !== servoSent) { servoSent = servoTarget; send("g" + String(servoTarget).padStart(3, "0")); }
+  }, 60);
+}
+$("#slider").addEventListener("input", e => setServo(+e.target.value));
+[["−5", () => setServo(servoTarget - 5)], ...[0, 45, 90, 135, 180].map(a => [a + "°", () => setServo(a)]),
+ ["+5", () => setServo(servoTarget + 5)]].forEach(([t, fn]) => {
+  const b = document.createElement("button"); b.textContent = t; b.onclick = fn; $("#presets").append(b);
+});
+
+// ───── Seguridad ─────
+document.addEventListener("visibilitychange", async () => {
+  if (document.hidden && connected) { if (lastCmd) stopAll("App en segundo plano"); clampUp(); }
+  else if (connected) { try { wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
+});
+addEventListener("blur", () => { if (connected && lastCmd) stopAll("Ventana sin foco"); clampUp(); });
+
+// ───── Ajustes ─────
+$("#cName").value = cfg.name; $("#cSvc").value = cfg.service; $("#cAll").checked = cfg.all;
+$("#save").onclick = () => {
+  cfg = { name: $("#cName").value.trim() || DEFAULTS.name,
+          service: $("#cSvc").value.trim().toLowerCase() || DEFAULTS.service,
+          all: $("#cAll").checked };
+  try { localStorage.setItem("cfg", JSON.stringify(cfg)); } catch (e) {}
+  log("Ajustes guardados. Nombre: " + cfg.name + " · Servicio: " + cfg.service + (cfg.all ? " · Todos" : ""));
+};
+
+// ───── Inicio ─────
+$("#conn").onclick = connect;
+if (!navigator.bluetooth) { $("#warn").hidden = false; $("#conn").disabled = true; }
+applyMode(); setConn("disconnected");
+log("Listo. Enciende el robot y toca «Conectar».");
+</script>
 </body>
 </html>
